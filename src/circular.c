@@ -8,60 +8,84 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define DELAY 900
 /* Queue structure */
-#define QUEUE_SIZE (10)
+#define QUEUE_SIZE 10
+#define MAX_BUF_LEN 1024
+#define MAX_BUF_QUEUE QUEUE_SIZE
+
+char buf[MAX_BUF_QUEUE][MAX_BUF_LEN];
 
 typedef struct _ring_st {
 	int in;
 	int out;
 	int size;
-	int element[QUEUE_SIZE];
+	char* element[QUEUE_SIZE];
 }Ring_st;
 
 void QueueInit(Ring_st * ring)
 {
-    ring->in = 0;
-    ring->out = 0;
-    ring->size = QUEUE_SIZE;
+	int i;
+	ring->in = 0;
+	ring->out = 0;
+	ring->size = QUEUE_SIZE;
+	for(i=0;i<QUEUE_SIZE;i++)
+		ring->element[i] = buf[i];
 }
 
-int QueuePut(Ring_st * ring, int value)
+char* QueuePut(Ring_st * ring)
 {
-    if(ring->in == (( ring->out - 1 + ring->size) % ring->size))
-    {
-        return -1; /* Queue Full*/
-    }
+	char* ptr = NULL;
+	if(ring->in == (( ring->out - 1 + ring->size) % ring->size))
+	{
+		return ptr;
+	}
 
-    ring->element[ring->in] = value;
-	printf("\x1B[34min  :Queue[%d] =%d\033[0m\r\n", ring->in, ring->element[ring->in]); fflush(stdout); 
-    ring->in = (ring->in + 1) % ring->size;
+	ptr = ring->element[ring->in];
 
-    return 0; // No errors
+	return ptr; // No errors
 }
 
-int QueueGet(Ring_st * ring, int *old)
+void QueuePutUpdate(Ring_st * ring)
 {
-    if(ring->in == ring->out)
-    {
-        return -1; /* Queue Empty - nothing to get*/
-    }
+	ring->in = (ring->in + 1) % ring->size;
+}
 
-    *old = ring->element[ring->out];
-	printf("\x1B[32mout :Queue[%d] =%d\033[0m\r\n", ring->out, ring->element[ring->out]);fflush(stdout); 
-    ring->out = (ring->out + 1) % ring->size;
+char* QueueGet(Ring_st * ring)
+{
+	char* ptr = NULL;
+	if(ring->in == ring->out)
+	{
+		return ptr; /* Queue Empty - nothing to get*/
+	}
 
-    return 0; // No errors
+	ptr = ring->element[ring->out];
+
+	return ptr; // No errors
+}
+
+void QueueGutUpdate(Ring_st * ring)
+{
+	ring->out = (ring->out + 1) % ring->size;
 }
 
 void *producer(void *ptr)
 {
 	int i = 0;
+	char *tmp;
+	char data[MAX_BUF_LEN];
 	Ring_st *ring = (Ring_st *)ptr;
 	printf("I'm a producer\n");
 	while (1)
 	{
 		pthread_mutex_lock(&mutex);
 		usleep(2*DELAY);
-		QueuePut(ring, i);
+		tmp = (char *) QueuePut(ring);
+		if(tmp != NULL)
+		{
+			sprintf(data,"%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",i ,i ,i ,i ,i, i ,i ,i ,i ,i);
+			memcpy(tmp, data, strlen(data));
+			printf("\x1B[34min  :Queue[%d] =%s\033[0m\r\n", ring->in, ring->element[ring->in]); fflush(stdout); 
+			QueuePutUpdate(ring);
+		}
 		pthread_mutex_unlock(&mutex);
 		i = i + 1;
 	}
@@ -70,14 +94,19 @@ void *producer(void *ptr)
 
 void *consumer(void *ptr)
 {
-	int value;
+	char *tmp;
 	Ring_st *ring = (Ring_st *)ptr;
 	printf("I'm a consumer\n");
 	while(1)
 	{
 		pthread_mutex_lock(&mutex);
 		usleep(DELAY);
-		QueueGet(ring, &value);
+		tmp = (char *) QueueGet(ring);
+		if(tmp != NULL)
+		{
+			printf("\x1B[32mout :Queue[%d] =%s\033[0m\r\n", ring->out, ring->element[ring->out]);fflush(stdout); 
+			QueueGutUpdate(ring);
+		}
 		pthread_mutex_unlock(&mutex);
 	}
 	pthread_exit(NULL);
